@@ -1,3 +1,12 @@
 spring:
   application:
     name: remittance-transfer-api-belajar
+  sql:
+    init:
+      mode: always
+      schema-locations: file:schema.sql
+  h2:
+    console:
+      enabled: true
+
+
