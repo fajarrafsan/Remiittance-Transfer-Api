@@ -40,7 +40,11 @@ public class TransferRespository {
                         receive_currency, receive_amount,recipient_name, status,
                         created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """, t.transferId(), t.customerId(), t.idempotencyKey(), t.requestHash(),
-                t.sendCurrency(), t.sendAmount(), t.fee(), t.totalDebit(), t.fxRate(), t.receiveCurrency(), t.receiveAmount(), t.recipientName(), t.status(), t.createdAt(), t.updatedAt());
+                t.sendCurrency(), t.sendAmount(), t.fee(), t.totalDebit(), t.fxRate(), t.receiveCurrency(), t.receiveAmount(), t.recipientName(), t.status().name(), t.createdAt(), t.updatedAt());
+    }
+
+    public Optional<Transfer> findById(String transferId) {
+        return jdbc.query(SELECT_TRANSFER + "WHERE transfer_id = ?", this::mapRow, transferId).stream().findFirst();
     }
 
     public Optional<Transfer> findByIdempotencyKey(String idempotencyKey) {

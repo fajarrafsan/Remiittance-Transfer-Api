@@ -71,6 +71,10 @@ public class TransferService {
         }
     }
 
+    public Transfer get(String transferId) {
+        return respository.findById(transferId).orElseThrow(() -> ApiException.notFound("transfer not found: " + transferId));
+    }
+
     // satu transaksi: kunci baris customer tersebut, lalu periksa batas dan lakukan penyisipan
     private CreateResult insertWithinDailyLimit(Transfer transfer) {
         respository.lockCustomer(transfer.customerId());
@@ -84,7 +88,7 @@ public class TransferService {
                 .toLocalDate().atStartOfDay(DAY_ZONE);
         BigDecimal usedToday = respository.sumActiveSendAmount(transfer.customerId(), dayStart.toOffsetDateTime(), dayStart.plusDays(1).toOffsetDateTime());
         if (usedToday.add(transfer.sendAmount()).compareTo(DAILY_LIMIT) > 0) {
-            throw ApiException.limitExceeded("daily limit of " + DAILY_LIMIT.toPlainString() + " KRW exceeded: " + usedToday.toPlainString() + " KRW already user today (asia/seoul");
+            throw ApiException.limitExceeded("daily limit of " + DAILY_LIMIT.toPlainString() + " KRW exceeded: " + usedToday.toPlainString() + " KRW already user today (asia/seoul)");
         }
 
         respository.insert(transfer);

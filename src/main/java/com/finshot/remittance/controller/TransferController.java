@@ -30,4 +30,9 @@ public class TransferController {
                 .body(TransferResponse.from(result.transfer()));
 
     }
+
+    @GetMapping("/{transferId}")
+    public TransferResponse get(@PathVariable("transferId") String transferId) {
+        return TransferResponse.from(transferService.)
+    }
 }
