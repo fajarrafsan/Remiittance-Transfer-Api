@@ -12,7 +12,7 @@ public class ApiException extends RuntimeException{
         return code;
     }
 
-    public static ApiException validationError(String message) {
+    public static ApiException validation(String message) {
         return new ApiException(message, ErrorCode.VALIDATION_ERROR);
     }
 
