@@ -12,7 +12,7 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 
 @Repository
-public class TransferRespository {
+public class TransferRepository {
     private static final String SELECT_TRANSFER = """
             SELECT transfer_id, customer_id, idempotency_key, request_hash,
                 send_currency, send_amount, fee, total_debit, fx_rate,
@@ -22,7 +22,7 @@ public class TransferRespository {
             """;
     private final JdbcTemplate jdbc;
 
-    public TransferRespository(JdbcTemplate jdbc) {
+    public TransferRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -67,9 +67,33 @@ public class TransferRespository {
     }
 
 
-    public boolean update(String transferId, TransferStatus from, TransferStatus to, OffsetDateTime now) {
+    public boolean updateStatus(String transferId, TransferStatus from, TransferStatus to, OffsetDateTime now) {
         int row = jdbc.update("UPDATE transfers SET status = ?, updated_at = ? WHERE transfer_id = ? AND status = ?", to.name(), now, transferId, from.name());
         return row == 1;
+    }
+
+    public boolean startSending(String transferId, String partnerRef, OffsetDateTime now) {
+        int rows = jdbc.update(
+                "UPDATE transfers SET status = ?, partner_ref = ?, updated_at = ? WHERE transfer_id = ? AND status = ?",
+                TransferStatus.SENDING.name(), partnerRef, now, transferId, TransferStatus.REQUESTED.name());
+        return rows == 1;
+    }
+
+    public boolean markFailed(String transferId, String reason, OffsetDateTime now) {
+        int rows = jdbc.update(
+                "UPDATE transfers SET status = 'FAILED', failure_reason = ?, updated_at = ? "
+                        + "WHERE transfer_id = ? AND status = 'SENDING'",
+                reason, now, transferId);
+        return rows == 1;
+    }
+
+    public long nextPartnerRefNumber() {
+        Long next = jdbc.queryForObject("SELECT NEXT VALUE FOR partner_ref_seq", Long.class);
+        return next == null ? 0 : next;
+    }
+
+    public Optional<Transfer> findByPartnerRef(String partnerRef) {
+        return jdbc.query(SELECT_TRANSFER + "WHERE partner_ref = ?", this::mapRow, partnerRef).stream().findFirst();
     }
 
     private Transfer mapRow(ResultSet rs, int rowNum) throws SQLException {

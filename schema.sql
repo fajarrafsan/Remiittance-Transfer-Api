@@ -1,7 +1,7 @@
 CREATE TABLE customers
 (
     customer_id VARCHAR(10) PRIMARY KEY,
-    name         VARCHAR(100) NOT NULL
+    name        VARCHAR(100) NOT NULL
 );
 INSERT INTO customers (customer_id, name)
 VALUES ('C001', 'Kim'),
@@ -21,7 +21,7 @@ CREATE TABLE transfers
     fx_rate          DECIMAL(10, 4)           NOT NULL,
     receive_currency CHAR(3)                  NOT NULL,
     receive_amount   DECIMAL(19, 2)           NOT NULL,
-    recipient_name   VARCHAR(100)              NOT NULL,
+    recipient_name   VARCHAR(100)             NOT NULL,
     status           VARCHAR(16)              NOT NULL,
     partner_ref      VARCHAR(64),
     failure_reason   VARCHAR(255),
@@ -56,4 +56,19 @@ CREATE TABLE transfers
 );
 
 CREATE INDEX idx_transfers_customers_created ON transfers (customer_id, created_at);
+
+CREATE SEQUENCE partner_ref_seq START WITH 1;
+
+CREATE TABLE partner_events
+(
+    event_id    VARCHAR(64)              NOT NULL,
+    partner_ref VARCHAR(64)              NOT NULL,
+    status      VARCHAR(16)              NOT NULL,
+    received_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+
+    CONSTRAINT pk_partner_events PRIMARY KEY (event_id),
+    CONSTRAINT fk_partner_events_transfer
+        FOREIGN KEY (partner_ref) REFERENCES transfers (partner_ref)
+);
+
 

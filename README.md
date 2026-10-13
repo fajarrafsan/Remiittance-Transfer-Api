@@ -1,74 +1,113 @@
-# DESAIN SISTEM
+# Finshot - Remittance Transfer API
 
-## Q1. Tabel, index, dan constraint
+Tugas take-home backend, versi 3.11, **Bagian 1 dan Bagian 2**.  
+Nasabah di Korea mengirimkan mata uang KRW kepada penerima di Filipina (PHP).
 
-Tabel `customers` sudah tersedia (*given*). Tabel `transfers` menyimpan satu baris untuk setiap transaksi transfer: nominal, status, *idempotency key*, *hash request*, referensi partner (`partner_ref`), alasan kegagalan, dan catatan waktu (*timestamps*). Tabel `partner_events` mencatat setiap *callback* yang telah diproses.
+## Cara Menjalankan
 
-Nominal KRW bertipe `BIGINT` (tidak memiliki satuan desimal/sen). `receive_amount` bertipe `DECIMAL(19,2)` dan `fx_rate` bertipe `DECIMAL(10,4)`, sehingga database tidak akan pernah melakukan pembulatan otomatis.
+Persyaratan: **Java 17 atau yang lebih baru**. Tidak ada dependensi lain yang perlu diinstal: database menggunakan H2 *in-memory* dan Maven sudah disertakan melalui wrapper bawaan.
 
-Setiap *constraint* mencegah satu masalah spesifik:
+```bash
+./mvnw spring-boot:run
+```
 
-- `PRIMARY KEY (transfer_id)`: Mencegah duplikasi data transfer.
-- `FOREIGN KEY (customer_id)`: Mencegah transfer untuk nasabah yang tidak terdaftar.
-- `UNIQUE (idempotency_key)`: Mencegah transfer ganda akibat *retry*, bahkan ketika dua request *retry* tiba pada saat yang bersamaan (*concurrent*).
-- `UNIQUE (partner_ref)`: Mencegah satu *callback* mencocokkan dua transfer yang berbeda.
-- `PRIMARY KEY (event_id)` pada `partner_events`: Mencegah *callback* yang sama diproses dua kali.
-- `CHECK (status IN (...))`: Mencegah status yang tidak dikenal/tidak valid.
-- `CHECK` bahwa transfer yang terkirim harus memiliki `partner_ref`: Mencegah adanya transfer yang tidak bisa ditemukan oleh *callback*.
-- `CHECK` pada nominal dan aturan `total_debit = send_amount + fee`: Mencegah uang bernilai negatif dan kesalahan perhitungan total.
+Di Windows: jalankan perintah yang sama menggunakan Git Bash, atau jalankan `mvn spring-boot:run` jika Maven sudah terinstal di sistem Anda (`mvnw.cmd` sengaja dihilangkan karena Gmail memblokir lampiran file berekstensi .cmd di dalam file zip). Jika `./mvnw` memunculkan pesan "permission denied" (file zip dapat menghilangkan izin eksekusi file): jalankan `sh mvnw spring-boot:run`.
 
-Index `(customer_id, created_at)`: Pengambilan agregasi total (*sum*) limit harian hanya membaca data transaksi milik satu nasabah pada hari tersebut secara efisien.
+Jalankan perintah dari direktori utama (*root*) repositori. API berjalan di port `http://localhost:8080` dan selalu dimulai dengan database yang baru dan bersih setiap kali aplikasi dijalankan.
 
-## Q2. Idempotensi (Idempotency)
+| Keterangan | Perintah |
+|---|---|
+| Pengujian / Tests (output konsol dari pengetesan saya: `test-output.txt`) | `./mvnw test` |
+| Skenario S1-S9 (kondisi aplikasi aktif dan baru dijalankan) | `bash scenarios.sh > RESULT.md` |
 
-Klien mengirimkan *header* `Idempotency-Key`: berupa UUID baru untuk setiap transaksi baru, dan digunakan kembali pada setiap *retry* untuk transfer tersebut. Server menyimpan *key* tersebut beserta *hash* SHA-256 dari kolom-kolom *request* pada baris data transfer.
+## Teknologi (Stack)
 
-Saat pembuatan (*create*):
+- Java 17, Spring Boot 4.1 (Spring MVC, JdbcTemplate)
+- Database H2 in-memory; seluruh tabel, constraint, dan seed data terdapat di dalam `schema.sql`
+- JUnit 5 dan AssertJ untuk pengujian (*unit/integration test*)
 
-1. **Key ditemukan, hash sama:** Kembalikan transfer yang sudah tersimpan (HTTP 201, dengan header `Idempotent-Replayed: true`).
-2. **Key ditemukan, hash berbeda:** Kembalikan error 409 (*Conflict*).
-3. **Key tidak ditemukan:** Masukkan (*insert*) transfer baru.
+## Endpoint
 
-Perlindungan sesungguhnya berada di level database, yaitu melalui *constraint* `UNIQUE` pada kolom `idempotency_key`. Pengecekan di level kode hanyalah jalur cepat (*fast path*).
+| Method | Path | Berhasil | Error |
+|---|---|---|---|
+| POST | `/api/transfers` | 201 | 400, 409, 422 |
+| GET | `/api/transfers/{transferId}` | 200 | 404 |
+| POST | `/api/transfers/{transferId}/cancel` | 200 | 404, 409 |
+| POST | `/api/transfers/{transferId}/send` | 200 | 400, 404, 409 |
+| POST | `/api/callbacks/partner` | 200 | 400, 404, 409 |
 
-Jika dua request yang identik tiba pada detik yang persis sama, keduanya bisa saja mendeteksi "key tidak ditemukan", namun hanya satu perintah `INSERT` yang akan berhasil. Request lainnya akan terkena error duplikasi *key* (*duplicate-key error*). Kode akan menangkap error tersebut, membaca baris data yang berhasil disimpan berdasarkan *key*, membandingkan *hash*-nya, lalu mengembalikannya. Dengan demikian, selalu dipastikan hanya ada tepat satu transfer per *idempotency key*.
+Semua nominal pada respons dikirimkan sebagai *string* JSON (`"20600.00"`). Format pesan error menggunakan `{"error": "...", "message": "..."}`.
 
-## Q3. Nilai Uang (Money)
+## Cara Klien Melakukan Retry Permintaan Pembuatan Secara Aman
 
-- **Kode:** Menggunakan `BigDecimal` yang dibuat dari *string* (`new BigDecimal("0.0412")`), dan tidak pernah menggunakan `double`, karena tipe `double` tidak dapat menyimpan angka 0.0412 secara presisi.
-- **API:** Semua nominal dikirim sebagai *string* JSON (`"20600.00"`), sehingga klien tidak membacanya sebagai tipe *floating point* dan ketelitian dua angka desimal tetap terjaga.
-- **Database:** KRW disimpan sebagai `BIGINT` (bilangan won bulat), PHP sebagai `DECIMAL(19,2)`, dan kurs sebagai `DECIMAL(10,4)`.
+Setiap pemanggilan `POST /api/transfers` wajib menyertakan *header* **`Idempotency-Key`** (maksimal 64 karakter).  
+Klien menghasilkan sebuah UUID acak baru (v4) saat pengguna memulai proses transfer baru, menyimpannya, lalu mengirimkan request yang persis sama dengan key yang sama pada setiap percobaan ulang (*retry* akibat timeout, koneksi terputus, atau klik ganda).
 
-Pembulatan hanya dilakukan di satu tempat, yaitu `TransferCalculator`, dan hanya sekali saat transfer dibuat:
+| Request | Hasil |
+|---|---|
+| Key baru | Transfer berhasil dibuat: 201, header `Idempotent-Replayed: false` |
+| Key sama, body sama | Tidak membuat transfer baru. Data transfer asli dikembalikan: 201, `transferId` yang sama, header `Idempotent-Replayed: true` |
+| Key sama, body berbeda | 409 `CONFLICT` |
+| Tanpa key | 400 `VALIDATION_ERROR` |
 
-- Biaya admin (*fee*) = 1% dari `sendAmount`, dibulatkan dengan *HALF_UP* ke bilangan bulat KRW terdekat, lalu diterapkan batas minimum sebesar 3.000 KRW;
-- `receiveAmount` = `sendAmount` × 0.0412, dibulatkan dengan *HALF_UP* ke 2 angka desimal.
+```bash
+curl -i -X POST http://localhost:8080/api/transfers \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 6f1c2a9e-1b7d-4c1e-9a52-3c1f0b8d7e21" \
+  -d '{"customerId":"C001","sendCurrency":"KRW","sendAmount":"500000","receiveCurrency":"PHP","recipientName":"Juan Dela Cruz"}'
+```
 
-Hasil perhitungan langsung disimpan dan tidak pernah dihitung ulang. Dengan begitu, data respons, database, dan setiap pembacaan di kemudian hari akan selalu menampilkan angka yang sama, serta perubahan kurs atau aturan di masa depan tidak akan memengaruhi data transfer lama.
+## Ringkasan Bagian 2
 
-## Q4. Limit Harian di Bawah Kondisi Konkurensi
+- **Send** (`POST /api/transfers/{id}/send`, body opsional `{"partnerRef": "..."}`): Status transfer berpindah dari `REQUESTED` -> `SENDING`, lalu `partnerRef` disimpan dan di-commit ke database. Setelah itu mitra tiruan (*fake partner*) dipanggil, hingga maksimal 3 kali percobaan dengan jeda waktu (*backoff*) 100 ms dan 200 ms. Jika diterima: status transfer tetap `SENDING`. Jika ketiga percobaan gagal: status menjadi `FAILED` disertai alasan kegagalan. Setiap percobaan dicatat ke log (nomor percobaan, `partnerRef`, hasil).
+- **Limit Harian**: Maksimal 3.000.000 KRW untuk `sendAmount` per nasabah per hari kalender Asia/Seoul, transaksi berstatus `CANCELLED` dan `FAILED` tidak dihitung. Jika melebihi limit: 422 `LIMIT_EXCEEDED`. Baris data nasabah dikunci (*row lock*) selama proses validasi, sehingga dua request yang datang di detik yang bersamaan tidak dapat sama-sama lolos (lihat DESIGN.md Q4).
+- **Callback** (`POST /api/callbacks/partner`): Satu-satunya cara untuk mengubah status menjadi `COMPLETED`, dan hanya berlaku dari status `SENDING`. Bersifat idempoten berdasarkan `eventId`: event yang sama dikirim dua kali hanya akan mengubah transfer satu kali, dan pengiriman kedua menerima HTTP 200 dengan header `Idempotent-Replayed: true`.
 
-Menerapkan penguncian baris data nasabah (*row-level lock*). Pembuatan transfer berjalan dalam satu transaksi database:
+## Struktur Proyek
 
-1. `SELECT ... FROM customers WHERE customer_id = ? FOR UPDATE` (mengunci data nasabah);
-2. Periksa kembali *idempotency key*;
-3. Hitung total (*sum*) `send_amount` hari ini (berdasarkan hari di zona waktu `Asia/Seoul`, tanpa status CANCELLED dan FAILED);
-4. Tolak dengan 422 jika melebihi limit, atau lakukan `INSERT`;
-5. `COMMIT`.
+```
+src/main/java/com/finshot/remittance
+├── controller   TransferController, PartnerCallbackController
+├── service      TransferService            pembuatan (idempoten, limit harian), get, cancel
+│                PartnerService             kirim ke partner dengan retry, callback
+│                TransferRequestValidator   aturan validasi (400)
+│                TransferCalculator         biaya admin, total debet, dan nominal PHP (seluruh pembulatan ada di sini)
+├── repository   TransferRepository, PartnerEventRepository (SQL menggunakan JdbcTemplate)
+├── client       PartnerClient, FakePartnerClient
+├── model        Transfer, TransferStatus (state machine), TransferAmounts
+├── dto          body request dan response, ApiError
+└── exception    ApiException, ErrorCode, GlobalExceptionHandler
+```
 
-Request kedua untuk nasabah yang sama akan menunggu di langkah 1 sampai request pertama selesai melakukan *commit*, sehingga hasil penjumlahannya sudah mencakup transfer pertama. Dua request tidak akan pernah bisa lolos bersamaan jika jumlah keduanya melebihi 3.000.000 KRW. Langkah 2 memastikan bahwa request *retry* yang sempat tertahan antrean *lock* akan menerima data transfer aslinya, bukan error 422.
+Pengujian: `TransferCalculatorTest` (aturan 1.1), `TransferIdempotencyTest` (retry, termasuk 8 request serentak di waktu yang sama), `DailyLimitTest` (dua request di waktu yang sama), `PartnerFlowTest` (diterima, gagal, callback berulang).
 
-*Trade-off* yang diambil: Permintaan dari nasabah yang sama diproses satu per satu secara berurutan, sehingga lonjakan request (*burst*) dari nasabah yang sama akan sedikit menunggu. Namun, nasabah yang berbeda tidak saling mengunci (*non-blocking*). Aturan ini juga terjamin karena seluruh proses *insert* wajib melalui kode ini.
+## Asumsi
 
-## Q5. Callback Tiba Sebelum Hasil Partner Tersimpan
+Dokumen instruksi menyisakan beberapa poin terbuka. Berikut keputusan yang saya ambil:
 
-Sistem tidak akan rusak/gagal karena urutan penulisan datanya (*order of writes*):
+1. *Header* `Idempotency-Key` bersifat wajib. Tanpa header ini, mekanisme *retry* tidak dapat dikenali sehingga request ditolak (400).
+2. Sebuah key berlaku untuk satu transfer di seluruh nasabah. Menggunakan kembali key yang sama dengan data field yang berbeda (termasuk beda `customerId`) akan menghasilkan HTTP 409.
+3. Percobaan ulang (*retry*) mendapatkan status 201 yang sama dan data transfer yang sama seperti panggilan pertama, sesuai dengan kondisi status terbarunya (misalnya status `CANCELLED` jika transaksi tersebut telah dibatalkan setelahnya).
+4. `sendAmount` berupa deretan angka bulat, seperti pada contoh instruksi. Format `"500000.00"`, `"5e5"`, dan `"+500000"` ditolak (400). Nominal lebih dari 15 digit ditolak karena terlalu besar, sehingga setiap nominal dipastikan muat dalam tipe data BIGINT.
+5. `recipientName` yang hanya berisi spasi dihitung sebagai kosong. Kode mata uang bersifat *case-sensitive*: harus persis `"KRW"` dan `"PHP"`.
+6. Validasi langsung mengembalikan pesan error dari aturan pertama yang dilanggar. Kolom `createdAt` dan `updatedAt` menggunakan format UTC, ISO-8601 dengan milidetik.
+7. Respons error di luar daftar instruksi tetap mempertahankan struktur format error yang sama: `Content-Type` yang salah menghasilkan 400 `VALIDATION_ERROR`, method HTTP yang salah menghasilkan 405 `METHOD_NOT_ALLOWED`, dan error yang tidak terduga menghasilkan 500 `INTERNAL_ERROR`.
+8. Dokumen instruksi tidak menjelaskan bagaimana suatu transfer masuk ke status `SENDING`, sehingga saya menambahkan endpoint `POST /api/transfers/{id}/send`. Pembuatan transfer baru tidak langsung mengirimkannya secara otomatis; jika langsung terkirim otomatis, skenario S4 dan S5 (pembatalan hanya diizinkan dari status `REQUESTED`) tidak akan dapat berjalan.
+9. Pemanggil API dapat menentukan sendiri nilai `partnerRef` pada body request send (skenario S8 dan S9 melakukan hal ini, sesuai yang diminta instruksi untuk S9). Jika tidak diisi, server akan menghasilkan nilai otomatis `PR00000001`, `PR00000002`, … dari sequence database. Format `partnerRef` wajib diakhiri dengan angka digit.
+10. Dokumen instruksi memberikan dua aturan berbeda untuk mitra tiruan (*fake partner*): `abs(partnerRef.hashCode()) % 10 < 3` dan "gagal jika digit terakhir dari partnerRef adalah 0, 1, atau 2". Kedua aturan ini tidak identik secara logika. Saya mengimplementasikan **aturan digit terakhir**: karena ditulis dengan huruf tebal, skenario S9 didasarkan pada aturan ini, dan tidak bergantung pada fungsi internal Java `hashCode()`. Referensi yang digunakan pada S8 (`PR-S8-0004`) dan S9 (`PR-S9-0001`) menghasilkan status yang sama di bawah kedua aturan tersebut.
+11. Proses pengiriman (*send*) bersifat sinkron: respons dikembalikan ketika partner menerima (`SENDING`) atau setelah percobaan ketiga gagal (`FAILED`, membutuhkan waktu sekitar 1 detik).
+12. Perhitungan limit harian menjumlahkan transfer berstatus `REQUESTED`, `SENDING`, dan `COMPLETED` yang dibuat pada hari kalender Asia/Seoul yang sama. Akumulasi total tepat 3.000.000 KRW diperbolehkan.
+13. Callback dengan status selain `COMPLETED` akan ditolak (400). Nilai `eventId` yang sama namun dipasangkan dengan `partnerRef` yang berbeda menghasilkan HTTP 409.
+14. Percobaan pengiriman ke partner dicatat ke log konsol dan ke file `target/app.log`; skrip `scenarios.sh` menyalin baris log pengujian S9 dari file tersebut.
 
-1. Sebelum memanggil partner, kode terlebih dahulu menyimpan status `SENDING` dan `partnerRef` ke database, lalu melakukan `COMMIT`.
-2. Setelah itu, kode memanggil API partner di luar transaksi database.
+## Hal yang Tidak Diimplementasikan
 
-Dengan alur ini, *callback* yang tiba lebih awal akan selalu menemukan transfer dalam status `SENDING` dan berhasil mengubahnya menjadi `COMPLETED`.
+- Klien HTTP mitra nyata (*real partner*): instruksi meminta implementasi mitra tiruan (*fake partner*).
+- Mekanisme pemulihan (*recovery*) untuk transfer yang tertahan di status `SENDING` akibat callback yang tidak kunjung tiba (misalnya *scheduled job/cron* yang secara berkala menanyakan status ke partner).
+- Hal-hal yang secara eksplisit dinyatakan oleh dokumen instruksi tidak memiliki bobot penilaian: autentikasi, endpoint daftar/list data, Docker, OpenAPI/Swagger, API admin, dan metrik aplikasi.
 
-Setelah pemanggilan partner, kode hanya akan memperbarui database jika ketiga percobaan (*retries*) gagal, dan query `UPDATE` tersebut menyertakan klausa `WHERE status = 'SENDING'`. Jika *callback* sudah lebih dahulu menyelesaikan transfer tersebut, update kegagalan akan mengubah 0 baris sehingga status `COMPLETED` tetap bertahan. Perulangan *retry* juga akan berhenti jika status transfer sudah bukan lagi `SENDING`, dan respons pengiriman akan membaca ulang data transfer terkini.
+## Alat Bantu AI yang Digunakan (AI Tools Used)
 
-Masalah baru akan terjadi jika `partnerRef` baru disimpan setelah partner merespons: *callback* yang tiba lebih awal akan mendapatkan error 404. Menyimpan datanya terlebih dahulu adalah solusi yang tepat.
+- Claude (Anthropic) - Menerjemahkan dokumen instruksi ke dalam Bahasa Indonesia dan membantu menyusun rencana kerja.
+- Claude - Menghasilkan kode program, pengujian (*tests*), `schema.sql`, dan `scenarios.sh` sesuai struktur yang saya tentukan (controller, service, repository, model, dto), serta menyusun draf awal README.md dan DESIGN.md.
+- Saya - Menginisialisasi proyek (Spring Initializr, IntelliJ IDEA), memperbaiki konfigurasi dan error skema database, meninjau (*code review*) kode program, serta menjalankan aplikasi, test, dan skenario pengujian di komputer lokal saya untuk memvalidasi hasilnya.

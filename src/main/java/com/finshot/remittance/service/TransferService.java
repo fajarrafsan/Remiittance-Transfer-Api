@@ -5,7 +5,7 @@ import com.finshot.remittance.exception.ApiException;
 import com.finshot.remittance.model.Transfer;
 import com.finshot.remittance.model.TransferAmounts;
 import com.finshot.remittance.model.TransferStatus;
-import com.finshot.remittance.repository.TransferRespository;
+import com.finshot.remittance.repository.TransferRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -33,12 +33,12 @@ public class TransferService {
     public record CreateResult(Transfer transfer, boolean replayed) {
     }
 
-    private final TransferRespository respository;
+    private final TransferRepository respository;
     private final TransferRequestValidator validator;
     private final TransferCalculator calculator;
     private final TransactionTemplate transaction;
 
-    public TransferService(TransferRespository respository, TransferRequestValidator validator, TransferCalculator calculator, PlatformTransactionManager transactionManager) {
+    public TransferService(TransferRepository respository, TransferRequestValidator validator, TransferCalculator calculator, PlatformTransactionManager transactionManager) {
         this.respository = respository;
         this.validator = validator;
         this.calculator = calculator;
@@ -82,7 +82,7 @@ public class TransferService {
     }
 
         private void moveTo(Transfer transfer, TransferStatus next) {
-        boolean moved = transfer.status().canMoveTo(next) && respository.update(transfer.transferId(), transfer.status(), next, now());
+        boolean moved = transfer.status().canMoveTo(next) && respository.updateStatus(transfer.transferId(), transfer.status(), next, now());
         if (!moved) {
             TransferStatus current = get(transfer.transferId()).status();
             throw ApiException.conflict("cannot change status: " + current + " to: " + next);

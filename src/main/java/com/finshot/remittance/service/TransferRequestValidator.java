@@ -2,7 +2,7 @@ package com.finshot.remittance.service;
 
 import com.finshot.remittance.dto.CreateTransferRequest;
 import com.finshot.remittance.exception.ApiException;
-import com.finshot.remittance.repository.TransferRespository;
+import com.finshot.remittance.repository.TransferRepository;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -19,9 +19,9 @@ public class TransferRequestValidator {
 
     private static final Pattern NUMBER = Pattern.compile("-?\\d+(\\.\\d+)?");
 
-    private final TransferRespository repository;
+    private final TransferRepository repository;
 
-    public TransferRequestValidator(TransferRespository repository) {
+    public TransferRequestValidator(TransferRepository repository) {
         this.repository = repository;
     }
 
