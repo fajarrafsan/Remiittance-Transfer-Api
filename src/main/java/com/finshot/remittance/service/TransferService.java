@@ -8,6 +8,7 @@ import com.finshot.remittance.model.TransferStatus;
 import com.finshot.remittance.repository.TransferRespository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -37,11 +38,11 @@ public class TransferService {
     private final TransferCalculator calculator;
     private final TransactionTemplate transaction;
 
-    public TransferService(TransferRespository respository, TransferRequestValidator validator, TransferCalculator calculator, TransactionTemplate transaction) {
+    public TransferService(TransferRespository respository, TransferRequestValidator validator, TransferCalculator calculator, PlatformTransactionManager transactionManager) {
         this.respository = respository;
         this.validator = validator;
         this.calculator = calculator;
-        this.transaction = transaction;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
 
@@ -73,6 +74,19 @@ public class TransferService {
 
     public Transfer get(String transferId) {
         return respository.findById(transferId).orElseThrow(() -> ApiException.notFound("transfer not found: " + transferId));
+    }
+
+    public Transfer cancel(String transferId) {
+        moveTo(get(transferId), TransferStatus.CANCELLED);
+        return get(transferId);
+    }
+
+        private void moveTo(Transfer transfer, TransferStatus next) {
+        boolean moved = transfer.status().canMoveTo(next) && respository.update(transfer.transferId(), transfer.status(), next, now());
+        if (!moved) {
+            TransferStatus current = get(transfer.transferId()).status();
+            throw ApiException.conflict("cannot change status: " + current + " to: " + next);
+        }
     }
 
     // satu transaksi: kunci baris customer tersebut, lalu periksa batas dan lakukan penyisipan

@@ -33,6 +33,11 @@ public class TransferController {
 
     @GetMapping("/{transferId}")
     public TransferResponse get(@PathVariable("transferId") String transferId) {
-        return TransferResponse.from(transferService.)
+        return TransferResponse.from(transferService.get(transferId));
+    }
+
+    @PostMapping("/{transferId}/cancel")
+    public TransferResponse cancel(@PathVariable("transferId") String transferId) {
+        return TransferResponse.from(transferService.cancel(transferId));
     }
 }

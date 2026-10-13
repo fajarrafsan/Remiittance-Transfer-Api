@@ -85,12 +85,12 @@ public class TransferRequestValidator {
 
         String value = raw.trim();
         if (!NUMBER.matcher(value).matches()) {
-            throw ApiException.validation("sendAmount is required");
+            throw ApiException.validation("sendAmount must be a number");
         }
 
         BigDecimal amount = new BigDecimal(value);
         if (amount.scale() > 0) {
-            throw ApiException.validation("sendAmount is required");
+            throw ApiException.validation("sendAmount must be a whole number (no decimals)");
         }
 
         if (amount.signum() <= 0) {

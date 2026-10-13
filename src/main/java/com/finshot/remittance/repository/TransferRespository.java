@@ -66,6 +66,12 @@ public class TransferRespository {
         return BigDecimal.valueOf(sum == null ? 0 : sum);
     }
 
+
+    public boolean update(String transferId, TransferStatus from, TransferStatus to, OffsetDateTime now) {
+        int row = jdbc.update("UPDATE transfers SET status = ?, updated_at = ? WHERE transfer_id = ? AND status = ?", to.name(), now, transferId, from.name());
+        return row == 1;
+    }
+
     private Transfer mapRow(ResultSet rs, int rowNum) throws SQLException {
         return new Transfer(
                 rs.getString("transfer_id"),
