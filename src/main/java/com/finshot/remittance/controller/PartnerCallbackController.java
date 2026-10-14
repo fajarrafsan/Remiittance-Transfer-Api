@@ -20,7 +20,7 @@ public class PartnerCallbackController {
 
     @PostMapping("/partner")
     public ResponseEntity<TransferResponse> partnerCallback(@RequestBody(required = false) PartnerCallbackRequest request) {
-        PartnerService.CallbackResult result = partnerService.handleCallBack(request);
+        PartnerService.CallbackResult result = partnerService.handleCallback(request);
         return ResponseEntity.ok()
                 .header(TransferController.IDEMPOTENT_REPLAYED, String.valueOf(result.replayed()))
                 .body(TransferResponse.from(result.transfer()));

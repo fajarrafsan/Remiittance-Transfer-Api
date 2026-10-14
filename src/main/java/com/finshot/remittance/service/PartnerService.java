@@ -112,7 +112,7 @@ public class PartnerService {
         return false;
     }
 
-    public CallbackResult handleCallBack(PartnerCallbackRequest request) {
+    public CallbackResult handleCallback(PartnerCallbackRequest request) {
         validateCallBack(request);
         String eventId = request.eventId();
         String partnerRef = request.partnerRef();
